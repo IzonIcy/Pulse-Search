@@ -2,7 +2,7 @@
 
 A small RAG (Retrieval-Augmented Generation) demo with real-time streaming and transparent diagnostics.
 
-**Live demo:** [[https://pulsesearch.vercel.app/](https://pulsesearch.vercel.app/)](https://pulse-search-9gcwtxxn0-izonicy.vercel.app/)
+**Live demo:** (https://pulse-search-9gcwtxxn0-izonicy.vercel.app/)
 
 ## The idea
 
