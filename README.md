@@ -1,5 +1,7 @@
 # PulseSearch
 
+[![CI](https://github.com/IzonIcy/Pulse-Search/actions/workflows/ci.yml/badge.svg)](https://github.com/IzonIcy/Pulse-Search/actions/workflows/ci.yml)
+
 A small RAG (Retrieval-Augmented Generation) demo with real-time streaming and transparent diagnostics.
 
 **Live demo:** (https://pulse-search-9gcwtxxn0-izonicy.vercel.app/)
