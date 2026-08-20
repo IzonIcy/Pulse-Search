@@ -8,7 +8,8 @@ export default defineConfig({
   },
   resolve: {
     alias: {
-      "@": path.resolve(__dirname, "."),
+      // Must mirror tsconfig "paths": { "@/*": ["./src/*"] }
+      "@": path.resolve(__dirname, "src"),
     },
   },
 });
