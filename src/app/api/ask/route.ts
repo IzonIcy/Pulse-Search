@@ -3,6 +3,8 @@ import { retrieveTopChunks } from "@/lib/retrieval";
 
 export const runtime = "nodejs";
 
+const MODEL = "gpt-4.1-mini";
+
 type AskBody = {
   query?: string;
 };
@@ -74,7 +76,7 @@ async function streamModelAnswer(
   const client = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
 
   const completion = await client.responses.create({
-    model: "gpt-4.1-mini",
+    model: MODEL,
     stream: true,
     input: [
       {
@@ -142,7 +144,7 @@ export async function POST(request: Request): Promise<Response> {
       sendEvent(controller, encoder, "diagnostics", {
         chunks,
         retrievalLatencyMs,
-        model: process.env.OPENAI_API_KEY ? "gpt-4.1-mini" : "fallback-local",
+        model: process.env.OPENAI_API_KEY ? MODEL : "fallback-local",
       });
 
       const usingFallback = !process.env.OPENAI_API_KEY;

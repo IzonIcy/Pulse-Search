@@ -4,13 +4,15 @@ import { POST } from "@/app/api/ask/route";
 // These tests cover the OpenAI-backed path of the route. OpenAI is mocked at
 // the module boundary so no network call is ever made.
 
+// The request shape the route sends to the OpenAI SDK.
+type CreateParams = {
+  model: string;
+  stream: boolean;
+  input: Array<{ role: string; content: string }>;
+};
+
 const { createMock } = vi.hoisted(() => {
-  type CreateParams = {
-    model: string;
-    stream: boolean;
-    input: Array<{ role: string; content: string }>;
-  };
-  const create = vi.fn(async function* (_params: CreateParams) {
+  const create = vi.fn(async function* () {
     yield { type: "response.output_text.delta", delta: "Model " };
     yield { type: "response.output_text.delta", delta: "answer" };
   });
@@ -73,7 +75,9 @@ describe("POST /api/ask with an OpenAI API key", () => {
     await POST(askRequest("streaming"));
 
     expect(createMock).toHaveBeenCalledTimes(1);
-    const [args] = createMock.mock.calls[0]!;
+    // The param-less mock generator loses the call-argument type, so restore
+    // it explicitly here to keep the assertions below type-checked.
+    const [args] = createMock.mock.calls[0]! as unknown as [CreateParams];
     expect(args.model).toBe("gpt-4.1-mini");
     expect(args.stream).toBe(true);
 
