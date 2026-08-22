@@ -1,14 +1,9 @@
 import { knowledgeBase, type KnowledgeChunk } from "@/data/knowledgeBase";
+import { tokenize } from "@/lib/tokenize";
 
 export type RetrievedChunk = KnowledgeChunk & {
   score: number;
 };
-
-const tokenPattern = /[a-z0-9]+/g;
-
-function tokenize(input: string): string[] {
-  return input.toLowerCase().match(tokenPattern) ?? [];
-}
 
 function frequencyMap(tokens: string[]): Map<string, number> {
   const frequency = new Map<string, number>();

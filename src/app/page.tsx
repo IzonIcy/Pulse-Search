@@ -13,6 +13,7 @@ type RetrievedChunk = {
 type DiagnosticsState = {
   chunks: RetrievedChunk[];
   retrievalLatencyMs: number;
+  retriever: string;
   model: string;
   firstTokenLatencyMs: number | null;
   totalLatencyMs: number | null;
@@ -22,6 +23,7 @@ function createInitialDiagnosticsState(): DiagnosticsState {
   return {
     chunks: [],
     retrievalLatencyMs: 0,
+    retriever: "",
     model: "",
     firstTokenLatencyMs: null,
     totalLatencyMs: null,
@@ -89,6 +91,32 @@ function applySsePayload(raw: string, handlers: StreamHandlers) {
   for (const block of blocks) {
     applySseBlock(block, handlers);
   }
+}
+
+function ChunkCard({ chunk, rank }: { chunk: RetrievedChunk; rank: number }) {
+  const [expanded, setExpanded] = useState(false);
+  const contentId = `chunk-content-${chunk.id}`;
+
+  return (
+    <div className="chunk-card">
+      <header>
+        <button
+          type="button"
+          onClick={() => setExpanded((current) => !current)}
+          aria-expanded={expanded}
+          aria-controls={contentId}
+          style={{ all: "unset", cursor: "pointer" }}
+        >
+          <h3 style={{ display: "inline" }}>
+            [{rank}] {chunk.title}
+          </h3>
+        </button>
+        <span>relevance {chunk.score}</span>
+      </header>
+      <p id={contentId}>{chunk.content}</p>
+      <small>{expanded ? chunk.source : `${chunk.source} · click title to expand`}</small>
+    </div>
+  );
 }
 
 export default function Home() {
@@ -216,6 +244,7 @@ export default function Home() {
           <h2>Diagnostics</h2>
           <div className="metrics-row">
             <span>Model: {diagnosticsState.model || "-"}</span>
+            <span>Retriever: {diagnosticsState.retriever || "-"}</span>
             <span>Retrieval: {diagnosticsState.retrievalLatencyMs || 0} ms</span>
             <span>First token latency: {diagnosticsState.firstTokenLatencyMs ?? "-"} ms</span>
             <span>Total latency: {diagnosticsState.totalLatencyMs ?? "-"} ms</span>
@@ -225,15 +254,8 @@ export default function Home() {
             {diagnosticsState.chunks.length === 0 ? (
               <p className="empty-note">Retrieved chunks and relevance scores will appear here.</p>
             ) : (
-              diagnosticsState.chunks.map((chunk) => (
-                <div key={chunk.id} className="chunk-card">
-                  <header>
-                    <h3>{chunk.title}</h3>
-                    <span>relevance {chunk.score}</span>
-                  </header>
-                  <p>{chunk.content}</p>
-                  <small>{chunk.source}</small>
-                </div>
+              diagnosticsState.chunks.map((chunk, index) => (
+                <ChunkCard key={chunk.id} chunk={chunk} rank={index + 1} />
               ))
             )}
           </div>

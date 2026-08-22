@@ -1,9 +1,23 @@
 import OpenAI from "openai";
 import { retrieveTopChunks } from "@/lib/retrieval";
+import { retrieveTopBm25 } from "@/lib/bm25";
+import { loadEmbeddings, rankByCosine } from "@/lib/embeddings";
+import { knowledgeBase } from "@/data/knowledgeBase";
 
 export const runtime = "nodejs";
 
 const MODEL = "gpt-4.1-mini";
+const EMBEDDING_MODEL = "text-embedding-3-small";
+
+type RetrieverName = "tf" | "bm25" | "embeddings";
+
+function resolveRetriever(): RetrieverName {
+  const requested = (process.env.RETRIEVER ?? "").toLowerCase();
+  if (requested === "bm25" || requested === "tf" || requested === "embeddings") {
+    return requested;
+  }
+  return "tf";
+}
 
 type AskBody = {
   query?: string;
@@ -110,6 +124,58 @@ function buildFallbackAnswer(query: string, contextText: string): string {
   ].join("\n");
 }
 
+async function retrieveChunks(
+  query: string,
+  topK: number,
+): Promise<{ chunks: Awaited<ReturnType<typeof retrieveTopChunks>>["chunks"]; retrievalLatencyMs: number; retriever: RetrieverName }> {
+  const retriever = resolveRetriever();
+
+  if (retriever === "embeddings") {
+    const file = loadEmbeddings();
+    if (!file || !process.env.OPENAI_API_KEY) {
+      console.warn(
+        "[ask] RETRIEVER=embeddings needs src/data/embeddings.json (npm run embeddings) and OPENAI_API_KEY; falling back to tf.",
+      );
+    } else {
+      try {
+        const client = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
+        const embedded = await client.embeddings.create({
+          model: EMBEDDING_MODEL,
+          input: query,
+        });
+        const queryVector = embedded.data[0].embedding;
+        if (queryVector.length !== file.dim) {
+          throw new Error(`dim mismatch: index ${file.dim} vs model ${queryVector.length}`);
+        }
+        const ranked = rankByCosine(queryVector, file);
+        const byId = new Map(knowledgeBase.map((chunk) => [chunk.id, chunk]));
+        const chunks = ranked.chunks
+          .filter((item) => item.score > 0)
+          .slice(0, topK)
+          .flatMap((item) => {
+            const chunk = byId.get(item.id);
+            return chunk ? [{ ...chunk, score: item.score }] : [];
+          });
+        if (chunks.length > 0) {
+          return { chunks, retrievalLatencyMs: ranked.retrievalLatencyMs, retriever };
+        }
+      } catch (error) {
+        console.warn(
+          `[ask] embeddings retrieval failed (${error instanceof Error ? error.message : "unknown"}); falling back to tf.`,
+        );
+      }
+    }
+  }
+
+  if (retriever === "bm25") {
+    const result = retrieveTopBm25(query, topK);
+    return { ...result, retriever: "bm25" };
+  }
+
+  const result = retrieveTopChunks(query, topK);
+  return { ...result, retriever: "tf" };
+}
+
 export async function POST(request: Request): Promise<Response> {
   const body = await parseAskBody(request);
 
@@ -123,7 +189,7 @@ export async function POST(request: Request): Promise<Response> {
     return Response.json({ error: "Query is required." }, { status: 400 });
   }
 
-  const { chunks, retrievalLatencyMs } = retrieveTopChunks(query, 4);
+  const { chunks, retrievalLatencyMs, retriever } = await retrieveChunks(query, 4);
 
   const contextText =
     chunks.length > 0
@@ -144,6 +210,7 @@ export async function POST(request: Request): Promise<Response> {
       sendEvent(controller, encoder, "diagnostics", {
         chunks,
         retrievalLatencyMs,
+        retriever,
         model: process.env.OPENAI_API_KEY ? MODEL : "fallback-local",
       });
 
