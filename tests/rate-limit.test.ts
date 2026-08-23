@@ -33,7 +33,7 @@ describe("createRateLimiter", () => {
   });
 
   it("does not grow without bound when keys churn", () => {
-    let time = 1_000_000;
+    const time = 1_000_000;
     const limiter = createRateLimiter({ maxPerMinute: 1, now: () => time });
 
     for (let i = 0; i < 20_000; i += 1) {
