@@ -1,19 +1,27 @@
+# Build with the same lockfile the repo uses (pnpm), not npm.
 FROM node:22-alpine AS build
-
 WORKDIR /app
-COPY package.json package-lock.json ./
-RUN npm ci
+RUN corepack enable
+
+COPY package.json pnpm-lock.yaml ./
+RUN pnpm install --frozen-lockfile
 
 COPY . .
-RUN npm run build
+RUN pnpm run build
 
+# Standalone output: .next/standalone already contains a minimal server +
+# traced node_modules, so the runtime image stays small and runs unprivileged.
 FROM node:22-alpine AS production
 WORKDIR /app
-COPY --from=build /app/.next ./.next
-COPY --from=build /app/public ./public
-COPY --from=build /app/package.json ./package.json
-COPY --from=build /app/node_modules ./node_modules
-COPY --from=build /app/next.config.ts ./
+ENV NODE_ENV=production
 
+RUN addgroup --system --gid 1001 nextjs \
+    && adduser --system --uid 1001 nextjs
+
+COPY --from=build /app/.next/standalone ./
+COPY --from=build /app/.next/static ./.next/static
+COPY --from=build /app/public ./public
+
+USER nextjs
 EXPOSE 3000
-CMD ["npm", "start"]
+CMD ["node", "server.js"]

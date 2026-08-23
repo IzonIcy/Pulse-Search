@@ -2,12 +2,21 @@ import OpenAI from "openai";
 import { retrieveTopChunks } from "@/lib/retrieval";
 import { retrieveTopBm25 } from "@/lib/bm25";
 import { loadEmbeddings, rankByCosine } from "@/lib/embeddings";
+import { clientKeyFromRequest, createRateLimiter } from "@/lib/rate-limit";
 import { knowledgeBase } from "@/data/knowledgeBase";
 
 export const runtime = "nodejs";
 
 const MODEL = "gpt-4.1-mini";
 const EMBEDDING_MODEL = "text-embedding-3-small";
+
+// Guardrails: each request can cost a paid API call, and an unbounded JSON
+// body means `request.json()` reads attacker-controlled megabytes before any
+// validation runs.
+const MAX_QUERY_LENGTH = 1_000;
+const MAX_BODY_BYTES = 16 * 1024;
+const RATE_LIMIT_PER_MINUTE = Number(process.env.ASK_RATE_LIMIT_PER_MINUTE ?? 30);
+const rateLimiter = createRateLimiter({ maxPerMinute: RATE_LIMIT_PER_MINUTE });
 
 type RetrieverName = "tf" | "bm25" | "embeddings";
 
@@ -177,6 +186,19 @@ async function retrieveChunks(
 }
 
 export async function POST(request: Request): Promise<Response> {
+  const verdict = rateLimiter.check(clientKeyFromRequest(request));
+  if (!verdict.allowed) {
+    return Response.json(
+      { error: "Rate limit exceeded. Please retry shortly." },
+      { status: 429, headers: { "Retry-After": String(verdict.retryAfterSeconds) } },
+    );
+  }
+
+  const declaredLength = Number(request.headers.get("content-length") ?? "0");
+  if (declaredLength > MAX_BODY_BYTES) {
+    return Response.json({ error: "Request body too large." }, { status: 413 });
+  }
+
   const body = await parseAskBody(request);
 
   if (!body) {
@@ -187,6 +209,13 @@ export async function POST(request: Request): Promise<Response> {
 
   if (!query) {
     return Response.json({ error: "Query is required." }, { status: 400 });
+  }
+
+  if (query.length > MAX_QUERY_LENGTH) {
+    return Response.json(
+      { error: `Query must be at most ${MAX_QUERY_LENGTH} characters.` },
+      { status: 400 },
+    );
   }
 
   const { chunks, retrievalLatencyMs, retriever } = await retrieveChunks(query, 4);
