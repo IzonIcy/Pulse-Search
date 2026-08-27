@@ -8,7 +8,7 @@ A small RAG (Retrieval-Augmented Generation) demo with real-time streaming and t
 
 ## The idea
 
-RAG is everywhere now but most tutorials hide the details. I wanted to build something where you can trace the full path: query comes in → chunks get retrieved → prompt gets assembled → tokens stream back. The whole app is under 200 lines of application code so nothing is hidden.
+RAG is everywhere now but most tutorials hide the details. I wanted to build something where you can trace the full path: query comes in → chunks get retrieved → prompt gets assembled → tokens stream back. The whole app is a few hundred lines of application code so nothing is hidden.
 
 The pipeline:
 
@@ -23,8 +23,8 @@ If you don't have an API key, it falls back to a deterministic local response ge
 ## Run it
 
 ```bash
-npm install
-npm run dev
+pnpm install
+pnpm dev
 ```
 
 Open `http://localhost:3000`.
@@ -54,7 +54,7 @@ src/
 
 ## Stack
 
-Next.js 15 App Router, TypeScript, OpenAI Node SDK. SSE streaming via Web ReadableStream. No vector database — the retrieval runs in-process on a local dataset.
+Next.js 16 App Router, TypeScript, OpenAI Node SDK. SSE streaming via Web ReadableStream. No vector database — the retrieval runs in-process on a local dataset.
 
 ## Design choices
 
@@ -65,8 +65,8 @@ Next.js 15 App Router, TypeScript, OpenAI Node SDK. SSE streaming via Web Readab
 ## Validation
 
 ```bash
-npm run lint
-npm run build
+pnpm lint
+pnpm build
 ```
 
 ## More docs

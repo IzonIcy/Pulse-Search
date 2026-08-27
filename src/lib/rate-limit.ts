@@ -36,13 +36,17 @@ export function createRateLimiter({
       const current = now();
 
       if (windows.size >= MAX_TRACKED_KEYS) {
+        // Evict oldest entries in insertion order instead of clearing the
+        // map, which would reset limits for currently-active clients.
         for (const [existingKey, window] of windows) {
           if (current - window.startedAt >= WINDOW_MS) {
             windows.delete(existingKey);
           }
         }
-        if (windows.size >= MAX_TRACKED_KEYS) {
-          windows.clear();
+        while (windows.size >= MAX_TRACKED_KEYS) {
+          const oldest = windows.keys().next();
+          if (oldest.done) break;
+          windows.delete(oldest.value);
         }
       }
 

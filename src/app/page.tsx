@@ -1,6 +1,7 @@
 "use client";
 
-import { FormEvent, useMemo, useState } from "react";
+import { FormEvent, useState } from "react";
+import { applySsePayload, type StreamHandlers } from "@/lib/sse-client";
 
 type RetrievedChunk = {
   id: string;
@@ -30,13 +31,6 @@ function createInitialDiagnosticsState(): DiagnosticsState {
   };
 }
 
-type StreamHandlers = {
-  onDiagnostics: (payload: Omit<DiagnosticsState, "firstTokenLatencyMs" | "totalLatencyMs">) => void;
-  onToken: (token: string) => void;
-  onDone: (payload: { firstTokenLatencyMs: number | null; totalLatencyMs: number }) => void;
-  onError: (payload: { message: string }) => void;
-};
-
 async function readRequestError(result: Response): Promise<string> {
   const contentType = result.headers.get("content-type") ?? "";
 
@@ -53,45 +47,6 @@ async function readRequestError(result: Response): Promise<string> {
   return message.trim() || `Request failed with status ${result.status}.`;
 }
 
-function applySseBlock(block: string, handlers: StreamHandlers) {
-  const lines = block.split("\n");
-  const eventLine = lines.find((line) => line.startsWith("event: "));
-  const dataLine = lines.find((line) => line.startsWith("data: "));
-
-  if (!eventLine || !dataLine) {
-    return;
-  }
-
-  const eventType = eventLine.replace("event: ", "").trim();
-  const dataText = dataLine.replace("data: ", "");
-  const payload = JSON.parse(dataText);
-
-  if (eventType === "diagnostics") {
-    handlers.onDiagnostics(payload);
-    return;
-  }
-
-  if (eventType === "token") {
-    handlers.onToken(payload as string);
-    return;
-  }
-
-  if (eventType === "done") {
-    handlers.onDone(payload);
-    return;
-  }
-
-  if (eventType === "error") {
-    handlers.onError(payload);
-  }
-}
-
-function applySsePayload(raw: string, handlers: StreamHandlers) {
-  const blocks = raw.split("\n\n").filter(Boolean);
-  for (const block of blocks) {
-    applySseBlock(block, handlers);
-  }
-}
 
 function ChunkCard({ chunk, rank }: { chunk: RetrievedChunk; rank: number }) {
   const [expanded, setExpanded] = useState(false);
@@ -100,20 +55,23 @@ function ChunkCard({ chunk, rank }: { chunk: RetrievedChunk; rank: number }) {
   return (
     <div className="chunk-card">
       <header>
-        <button
-          type="button"
-          onClick={() => setExpanded((current) => !current)}
-          aria-expanded={expanded}
-          aria-controls={contentId}
-          style={{ all: "unset", cursor: "pointer" }}
-        >
-          <h3 style={{ display: "inline" }}>
+        <h3 style={{ display: "inline" }}>
+          <button
+            type="button"
+            onClick={() => setExpanded((current) => !current)}
+            aria-expanded={expanded}
+            aria-controls={contentId}
+            style={{ all: "unset", cursor: "pointer" }}
+            className="chunk-toggle"
+          >
             [{rank}] {chunk.title}
-          </h3>
-        </button>
+          </button>
+        </h3>
         <span>relevance {chunk.score}</span>
       </header>
-      <p id={contentId}>{chunk.content}</p>
+      <p id={contentId} hidden={!expanded}>
+        {chunk.content}
+      </p>
       <small>{expanded ? chunk.source : `${chunk.source} · click title to expand`}</small>
     </div>
   );
@@ -128,7 +86,7 @@ export default function Home() {
     createInitialDiagnosticsState,
   );
 
-  const canSubmit = useMemo(() => query.trim().length > 0 && !isLoading, [query, isLoading]);
+  const canSubmit = query.trim().length > 0 && !isLoading;
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -144,16 +102,20 @@ export default function Home() {
 
     const streamHandlers: StreamHandlers = {
       onDiagnostics(payload) {
-        setDiagnosticsState((current) => ({ ...current, ...payload }));
+        setDiagnosticsState((current) => ({ ...current, ...(payload as Partial<DiagnosticsState>) }));
       },
       onToken(token) {
         setResponse((current) => current + token);
       },
       onDone(payload) {
-        setDiagnosticsState((current) => ({ ...current, ...payload }));
+        setDiagnosticsState((current) => ({ ...current, ...(payload as Partial<DiagnosticsState>) }));
       },
       onError(payload) {
-        setError(payload.message);
+        setError(
+          typeof payload === "object" && payload !== null && "message" in payload
+            ? String((payload as { message: unknown }).message)
+            : "The answer service reported an error.",
+        );
       },
     };
 
@@ -237,7 +199,8 @@ export default function Home() {
 
         <article className="panel response-panel">
           <h2>Response Stream</h2>
-          <pre>{response || "The streamed response will appear here."}</pre>
+          {/* aria-live lets screen readers follow the stream as tokens arrive. */}
+          <pre aria-live="polite">{response || "The streamed response will appear here."}</pre>
         </article>
 
         <article className="panel diagnostics-panel">

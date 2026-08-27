@@ -37,17 +37,39 @@ type StreamMetrics = {
   firstTokenLatencyMs: number | null;
 };
 
-async function parseAskBody(request: Request): Promise<AskBody | null> {
-  try {
-    const body = await request.json();
+type BodyParseResult =
+  | { ok: true; body: AskBody }
+  | { ok: false; status: 400 | 413 };
 
-    if (!body || typeof body !== "object" || Array.isArray(body)) {
-      return null;
+async function parseAskBody(request: Request): Promise<BodyParseResult> {
+  // Read with a byte budget instead of trusting request.json(): a chunked
+  // body has no content-length, and buffering first means the cap never
+  // applies to the bodies that matter.
+  const reader = request.body?.getReader();
+  if (!reader) return { ok: false, status: 400 };
+
+  const chunks: Uint8Array[] = [];
+  let received = 0;
+  for (;;) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    received += value.byteLength;
+    if (received > MAX_BODY_BYTES) {
+      await reader.cancel();
+      return { ok: false, status: 413 };
     }
+    chunks.push(value);
+  }
 
-    return body as AskBody;
+  try {
+    const text = Buffer.concat(chunks).toString("utf8");
+    const body = JSON.parse(text);
+    if (!body || typeof body !== "object" || Array.isArray(body)) {
+      return { ok: false, status: 400 };
+    }
+    return { ok: true, body: body as AskBody };
   } catch {
-    return null;
+    return { ok: false, status: 400 };
   }
 }
 
@@ -199,11 +221,15 @@ export async function POST(request: Request): Promise<Response> {
     return Response.json({ error: "Request body too large." }, { status: 413 });
   }
 
-  const body = await parseAskBody(request);
+  const parsed = await parseAskBody(request);
 
-  if (!body) {
-    return Response.json({ error: "Request body must be a JSON object." }, { status: 400 });
+  if (!parsed.ok) {
+    return Response.json(
+      { error: parsed.status === 413 ? "Request body too large." : "Request body must be a JSON object." },
+      { status: parsed.status },
+    );
   }
+  const body = parsed.body;
 
   const query = body.query?.trim() ?? "";
 
@@ -258,8 +284,13 @@ export async function POST(request: Request): Promise<Response> {
           totalLatencyMs: latencySince(metrics.startedAt),
         });
       } catch (error) {
-        const message = error instanceof Error ? error.message : "Unknown error";
-        sendEvent(controller, encoder, "error", { message });
+        // Upstream messages can carry key prefixes and quota details — log
+        // them server-side and give the client a generic category instead.
+        const detail = error instanceof Error ? error.message : "Unknown error";
+        console.error(`[ask] stream failed: ${detail}`);
+        sendEvent(controller, encoder, "error", {
+          message: "The answer service is unavailable right now. Try again shortly.",
+        });
       } finally {
         controller.close();
       }

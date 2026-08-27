@@ -97,6 +97,11 @@ describe("POST /api/ask with an OpenAI API key", () => {
 
     const errorEvent = events.find((event) => event.event === "error");
     expect(errorEvent).toBeDefined();
-    expect(JSON.parse(errorEvent!.data).message).toBe("upstream failure");
+    // Upstream error text must not reach the client (it can carry key
+    // prefixes / quota details) — only the generic category does.
+    expect(JSON.parse(errorEvent!.data).message).not.toContain("upstream failure");
+    expect(JSON.parse(errorEvent!.data).message).toBe(
+      "The answer service is unavailable right now. Try again shortly.",
+    );
   });
 });
